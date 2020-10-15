@@ -6,11 +6,32 @@ import numpy as np
 from PIL import Image
 import cv2
 import os
+from torch.utils.data import DataLoader
+from torchvision import transforms
+from utils.data_aug import *
 
 def decode(image,label):
-    pass
+    h,w,_ = image.shape
+    labels = np.copy(label)
+    labels[:,1:3] =(label[:,1:3]+label[:,3:5])/2
+    labels[:,3:5] = label[:,3:5]-label[:,1:3]
+    temp = np.array([1, w, h, w, h])
+    temp = torch.from_numpy(temp.copy())
+    label = label/temp
+    return image,label
 def encode(image,label):
-    pass
+    h, w, _ = image.shape
+    temp = np.array([1,w,h,w,h])
+    label = temp*label
+    labels = np.copy(label)
+    labels[:, 1:3] = label[:, 1:3] - label[:,3: 5] / 2
+    labels[:, 3:5] = label[:, 1:3] + label[:,3: 5] / 2
+    # for lab in labels:
+    #     if np.sum(lab)!=0:
+    #         cv2.rectangle(image,(int(lab[1]),int(lab[2])),(int(lab[3]),int(lab[4])),(0,255,255))
+    #         cv2.imshow('image',image)
+    #         cv2.waitKey()
+    return image,labels
 
 def resize(image, size1,size2):
     image = F.interpolate(image.unsqueeze(0), size=(size1,size2), mode="nearest").squeeze(0)
@@ -32,12 +53,7 @@ class ListDateset(Dataset):
         self.transform = transform
     def __getitem__(self, index):
         img_path = self.img_files[index].rstrip()
-        # print(img_path)
-        # if img_path==r'E:\pytorch\utils\face_mask_data\train\test_00002232.jpg':
-        #     print()
-        # img = np.array(Image.open(img_path).convert('RGB'))
         img = cv2.imread(img_path)
-        # print(img.shape)
         while len(img.shape) != 3:
             index += 1
             img_path = self.img_files[index].rstrip()
@@ -46,20 +62,26 @@ class ListDateset(Dataset):
         labels = None
         if os.path.exists(label_path):
             labels = np.loadtxt(label_path).reshape(-1, 5)#c,x,y,w,h
-        filled_labels = np.zeros((self.max_objects, 5))
-        if labels is not None:  # 将更新后的box坐标填充到刚刚申请的占位空间中
-            filled_labels[range(len(labels))[:self.max_objects]] = labels[:self.max_objects]
-        # image,labels = decode(img,filled_labels)
-        # if self.transform:
-        #     input_img,filled_labels= self.transform(image,labels)
-        filled_labels = torch.from_numpy(filled_labels)
-        input_img = np.transpose(img, (2,0,1))
-        # 将图片转化成 tensor
-        input_img = torch.from_numpy(input_img).float()
-        input_img = resize(input_img, *self.img_shape)
-        # print(input_img.size())
-        return img_path, input_img, filled_labels
 
+        image,labels = encode(img,labels)
+        sampler = {'image':image,'label':labels}
+        if self.transform:
+            input_img,filled_labels= self.transform(sampler)
+            image, label = decode(input_img,filled_labels)
+            filled_labels = torch.zeros((self.max_objects, 5),dtype=torch.float64)
+            if label is not None:  # 将更新后的box坐标填充到刚刚申请的占位空间中
+                filled_labels[range(len(label))[:self.max_objects]] = label[:self.max_objects]
+            return  image, filled_labels
     def __len__(self):
         return len(self.img_files)
+if __name__ == '__main__':
+    train_path = '../data'
+    transform = transforms.Compose([RandomHorizontalFilp(), RandomCrop(), RandomAffine(), Resize((416, 416)), ToTensor()])
+    dataset = ListDateset(train_path, transform=transform)
+    dataloder = DataLoader(dataset, batch_size=1, shuffle=True)
+    for epoch in range(0, 100):
+        totol_loss = 0
+        num = 0
+        for i, (image, target) in enumerate(dataloder):
+            print(image,'\n',target)
 
