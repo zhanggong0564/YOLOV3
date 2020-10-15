@@ -8,23 +8,27 @@ import cv2
 class RandomHorizontalFilp(object):
     def __init__(self,p = 0.5):
         self.p = p
-    def __call__(self,img,labels):
+    def __call__(self,sampler):
+        img, labels = sampler['image'],sampler['label']
         _,w,_=img.shape
         img = img[:,::-1,:]
-        labels[:,[0]] = w-labels[:,[0]]
-        return img,labels
+        labels[:,[1]] = w-labels[:,[1]]
+        sampler = {'image':img,'label':labels}
+        return sampler
 
 
 class RandomCrop(object):
     def __init__(self,p=0.5):
         self.p = p
-    def __call__(self,img,labels):
+    def __call__(self,sampler):
+        img, labels = sampler['image'], sampler['label']
+
         if random.random()<self.p:
             h,w,_ = img.shape
             max_bbox = np.concatenate(
                 [
-                    np.min(labels[:,:2],axis=0),
-                    np.min(labels[:,2:4],axis=0)
+                    np.min(labels[:,1:3],axis=0),
+                    np.max(labels[:,3:5],axis=0)
                 ],
                 axis=-1
             )
@@ -39,20 +43,22 @@ class RandomCrop(object):
             crop_ymax = max(h, int(max_bbox[3] + random.uniform(0, max_d_trans)))
 
             img = img[crop_ymin:crop_ymax,crop_xmin:crop_xmax]
-            labels[:,[0,2]] = labels[:,[0,2]] -crop_xmin
-            labels[:,[1,3]] = labels[:,[1,3]] -crop_ymin
-        return img,labels
+            labels[:,[1,3]] = labels[:,[1,3]] -crop_xmin
+            labels[:,[2,4]] = labels[:,[2,4]] -crop_ymin
+        sampler = {'image':img,'label':labels}
+        return sampler
 
 class RandomAffine(object):
     def __init__(self,p=0.5):
         self.p = p
-    def __call__(self,img,labels):
+    def __call__(self,sampler):
+        img, labels = sampler['image'], sampler['label']
         if random.random()<self.p:
             h,w,_ = img.shape
             max_bbox = np.concatenate(
                 [
-                    np.min(labels[:,:2],axis=-1),
-                    np.min(labels[:,2:4],axis=-1)
+                    np.min(labels[:,1:3],axis=0),
+                    np.max(labels[:,3:5],axis=0)
                 ],
                 axis=-1
             )
@@ -69,30 +75,33 @@ class RandomAffine(object):
                 [0,1,ty]
             ])
             img = cv2.warpAffine(img,M,(w,h))
-            labels[:,[0,2]] = labels[:,[0,2]] +tx
-            labels[:, [1, 3]] = labels[:, [1, 3]] + ty
-        return img,labels
+            labels[:,[1,3]] = labels[:,[1,3]] +tx
+            labels[:, [2,4]] = labels[:, [2,4]] + ty
+        sampler = {'image':img,'label':labels}
+        return sampler
 
 class Resize(object):
     def __init__(self,target_shape,correct_box = True):
         self.h_target,self.w_target = target_shape
         self.corret_box = correct_box
-    def __call__(self,img,labels):
+    def __call__(self,sampler):
+        img, labels = sampler['image'], sampler['label']
         h_org,w_org,_ = img.shape
         resize_ratio = min(1.0*self.w_target/w_org,1.0*self.h_target/h_org)
         resize_w = int(resize_ratio*w_org)
         resize_h = int(resize_ratio*h_org)
         img_resize = cv2.resize(img,(resize_w,resize_h))
-        image_pad = np.full(self.h_target,self.w_target)
+        image_pad = np.full((self.h_target,self.w_target,3),128)
         dw = (self.w_target-resize_w)//2
         dh = (self.h_target-resize_h)//2
         image_pad[dh:resize_h+dh,dw:resize_w+dw] = img_resize
         image = image_pad/255.0
 
         if self.corret_box:
-            labels[:,[0,2]]  = labels[:,[0,2]]*resize_ratio +dw
-            labels[:, [1, 3]] = labels[:, [1, 3]] * resize_ratio + dh
-            return image,labels
+            labels[:,[1,3]]  = labels[:,[1,3]]*resize_ratio +dw
+            labels[:, [2,4]] = labels[:, [2, 4]] * resize_ratio + dh
+            sampler = {'image': img, 'label': labels}
+            return sampler
         return image
 class LabelSmooth(object):
     def __init__(self,delta = 0.01):
@@ -100,3 +109,10 @@ class LabelSmooth(object):
     def __call__(self,onehot,num_class):
         laebl = onehot*(1-self.delta)+self.delta*1/num_class
         return laebl
+
+class ToTensor(object):
+    def __call__(self, sampler):
+        img, labels = sampler['image'], sampler['label']
+        image = np.transpose(img,(2,0,1))
+        image = image.astype(np.int32)
+        return torch.from_numpy(image.copy()),torch.from_numpy(labels.copy())
