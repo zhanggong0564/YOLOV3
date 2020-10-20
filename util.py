@@ -114,6 +114,7 @@ def build_targets(
     # grid_size: 13(特征图谱的尺寸)
     # ignore_thres: 0.5
     # img_dim: 图片尺寸
+
     nB = target.size(0) # batch_size
     nA = num_anchors # 3
     nC = num_classes # 80
@@ -145,6 +146,7 @@ def build_targets(
 
             # Get grid box indices
             # 获取在特征图谱上的整数坐标
+
             gi = int(gx)
             gj = int(gy)
 
